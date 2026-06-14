@@ -1,0 +1,102 @@
+// Schema database wame
+// Provider: SQLite (development). Untuk production tinggal ganti
+// provider ke "postgresql" + DATABASE_URL, query Prisma tidak berubah.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Akun pengguna wame
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  plan         String   @default("free") // "free" | "premium"
+  createdAt    DateTime @default(now())
+
+  bots Bot[]
+
+  @@map("users")
+}
+
+// Satu instance koneksi WhatsApp milik seorang user
+model Bot {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  phoneNumber String?
+  sessionPath String    @unique // folder auth state, contoh: sessions/bot_<id>
+  status      String    @default("disconnected") // disconnected | pairing | connected | error
+  connectedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  config       BotConfig?
+  features     BotFeature[]
+  activityLogs ActivityLog[]
+
+  @@map("bots")
+}
+
+// Konfigurasi bot — pengganti global.* di index.js lama
+// (global.nama, global.wm, global.prefa, global.owner, dst)
+model BotConfig {
+  id           Int     @id @default(autoincrement())
+  botId        Int     @unique
+  bot          Bot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  botName      String  @default("wame Bot")  // ganti global.nama
+  prefix       String  @default(".")          // ganti global.prefa
+  publicMode   Boolean @default(true)          // ganti global.pub (false = self mode)
+  ownerNumbers String  @default("[]")          // JSON array, ganti global.owner
+  watermark    String  @default("")            // ganti global.wm
+
+  @@map("bot_configs")
+}
+
+// Katalog fitur yang tersedia di platform wame
+model Feature {
+  id        Int     @id @default(autoincrement())
+  key       String  @unique // identifier dipakai di kode, contoh: "sticker-maker"
+  name      String
+  category  String  // ai | automation | productivity | media | information | security
+  isPremium Boolean @default(false)
+
+  botFeatures BotFeature[]
+
+  @@map("features")
+}
+
+// Toggle fitur per bot + setting spesifiknya
+model BotFeature {
+  id         Int     @id @default(autoincrement())
+  botId      Int
+  bot        Bot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  featureId  Int
+  feature    Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  enabled    Boolean @default(false)
+  configJson String  @default("{}") // setting spesifik fitur, contoh: {"afkMessage": "..."}
+
+  @@unique([botId, featureId])
+  @@map("bot_features")
+}
+
+// Log aktivitas bot — ditampilkan di dashboard
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  botId     Int
+  bot       Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  type      String   // command | connection | error
+  message   String
+  createdAt DateTime @default(now())
+
+  @@map("activity_logs")
+}
